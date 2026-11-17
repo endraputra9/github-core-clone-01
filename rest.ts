@@ -51,11 +51,13 @@ function notFound(): HttpResult {
 
 // ---------------------------------------------------------------- object shapes
 
+const USER_NODE_ID = Buffer.from(`04:User${VIEWER_ID}`, 'utf8').toString('base64');
+
 export function userObject(): Record<string, unknown> {
   return {
     login: VIEWER_LOGIN,
     id: VIEWER_ID,
-    node_id: Buffer.from(`04:User${VIEWER_ID}`, 'utf8').toString('base64'),
+    node_id: USER_NODE_ID,
     type: 'User',
     name: VIEWER_NAME,
     email: VIEWER_EMAIL,

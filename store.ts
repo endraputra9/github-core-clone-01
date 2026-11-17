@@ -111,8 +111,14 @@ export class Forge {
     return this.clockSec;
   }
 
+  private readonly isoCache = new Map<number, string>();
+
   iso(sec: number): string {
-    return new Date(sec * 1000).toISOString().replace('.000Z', 'Z');
+    const cached = this.isoCache.get(sec);
+    if (cached !== undefined) return cached;
+    const rendered = new Date(sec * 1000).toISOString().replace('.000Z', 'Z');
+    if (this.isoCache.size < 8192) this.isoCache.set(sec, rendered);
+    return rendered;
   }
 
   /** The creation-order sequence number of the last mutation (orders issues and pulls). */
@@ -189,8 +195,15 @@ export class Forge {
 /** Relay-style global ids: base64 of "<prefix>:<Type><numeric id>", opaque and stable. */
 const GID_PREFIX: Record<string, string> = { Repository: '05', Issue: '04', PullRequest: '09', IssueComment: '06' };
 
+const globalIdCache = new Map<string, string>();
+
 export function globalId(type: 'Repository' | 'Issue' | 'PullRequest' | 'IssueComment', numeric: number): string {
-  return Buffer.from(`${GID_PREFIX[type]}:${type}${numeric}`, 'utf8').toString('base64');
+  const key = `${type}:${numeric}`;
+  const cached = globalIdCache.get(key);
+  if (cached !== undefined) return cached;
+  const rendered = Buffer.from(`${GID_PREFIX[type]}:${type}${numeric}`, 'utf8').toString('base64');
+  if (globalIdCache.size < 8192) globalIdCache.set(key, rendered);
+  return rendered;
 }
 
 export function parseGlobalId(value: string): { type: string; numeric: number } | null {

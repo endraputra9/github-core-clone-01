@@ -268,18 +268,52 @@ export function writePack(objects: Array<{ oid: string; type: GitType; data: Buf
   return Buffer.concat([body, trailer]);
 }
 
+/** Adler-32 of a payload, as a zlib stream's trailer stores it (big-endian at the stream's end). */
+function adler32(data: Buffer): number {
+  let a = 1;
+  let b = 0;
+  let pos = 0;
+  while (pos < data.length) {
+    const end = Math.min(pos + 5552, data.length);
+    for (; pos < end; pos += 1) {
+      a += data[pos]!;
+      b += a;
+    }
+    a %= 65521;
+    b %= 65521;
+  }
+  return ((b << 16) | a) >>> 0;
+}
+
 /**
- * Inflate one zlib stream starting at `offset`, finding its exact end. Zlib streams carry an
- * Adler-32 trailer, so a truncated slice throws while any longer slice (trailing bytes are
- * ignored) succeeds: "inflates" is monotonic in the slice length, and the minimal succeeding
- * length is the stream's exact end.
+ * Inflate one zlib stream starting at `offset`, finding its exact end. The zlib engine reports
+ * how many input bytes the stream consumed (`bytesWritten` on the engine when the `info` option
+ * is passed), so one inflate of the remainder settles both the data and the end; the reported
+ * end is trusted only when the stream's Adler-32 trailer sits exactly there, which a wrong
+ * count would have to forge at 2^-32 odds. Otherwise this falls back to the search the fast
+ * path replaces: zlib streams carry that Adler-32 trailer, so a truncated slice throws while
+ * any longer slice (trailing bytes are ignored) succeeds — "inflates" is monotonic in the
+ * slice length, and the minimal succeeding length is the stream's exact end.
  */
 export function inflateAt(buf: Buffer, offset: number): { data: Buffer; consumed: number } {
-  const total = buf.length - offset;
+  const rest = buf.subarray(offset);
+  const inflated = inflateSync(rest, { info: true }) as unknown as {
+    buffer: Buffer;
+    engine?: { bytesWritten?: unknown };
+  };
+  const consumed = inflated.engine?.bytesWritten;
+  if (
+    typeof consumed === 'number' &&
+    Number.isInteger(consumed) &&
+    consumed >= 5 &&
+    consumed <= rest.length &&
+    rest.readUInt32BE(consumed - 4) === adler32(inflated.buffer)
+  ) {
+    return { data: inflated.buffer, consumed };
+  }
+  const total = rest.length;
   let lo = 1;
   let hi = total;
-  // Confirm the full remainder inflates at all (a corrupt stream throws here, as it should).
-  inflateSync(buf.subarray(offset));
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
     try {
